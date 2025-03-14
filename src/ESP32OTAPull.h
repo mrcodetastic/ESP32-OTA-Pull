@@ -52,8 +52,9 @@ private:
     int DoOTAUpdate(const char* URL, ActionType Action)
     {
         HTTPClient http;
-		http.useHTTP10(true);		
+	http.useHTTP10(true);		
         http.begin(URL);
+    	http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS); //Forces redirect following, enables OTA updates from more online sources, like GitHub releases.
 
         // Send HTTP GET request
         int httpResponseCode = http.GET();
@@ -84,7 +85,13 @@ private:
                     size_t bytes_written = Update.write(buff, bytes_read);
                     if (bytes_read != bytes_written)
                     {
-                        // Serial.printf("Unexpected error in OTA: %d %d %d\n", bytes_to_read, bytes_read, bytes_written);
+                        if(SerialDebug)
+			{
+				Serial.printf("Unexpected error in OTA: %d %d %d\n", bytes_to_read, bytes_read, bytes_written);
+				Serial.printf("Write returned 0? Common causes are:\n");
+				Serial.printf("Using merged .bin file instead of just the app .bin from Arduino\n");
+				Serial.printf("Flash encryption configuration issues.\n");
+			}
                         break;
                     }
                     offset += bytes_written;
@@ -183,6 +190,7 @@ public:
 		
 		// Send request
 		http.begin(JSON_URL);
+	    	http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS); //Forces redirect following, enables OTA updates from more online sources, like GitHub releases.
 		
         // Send HTTP GET request
         int httpResponseCode = http.GET();

@@ -1,4 +1,11 @@
 # ESP32-OTA-Pull
+
+This is a fork of a fork for the original ESP-OTA-Pull, with some added debugging info and forced redirect following. This allows OTA updates from more sources. In my case, it enabled pulling compiled binaries from GitHub. 
+
+A new example has been added demonstrating this functionality, where an ESP32, ESP32S2, or ESP32S3 Dev Module will install compiled binaries from the relaese tagged "example". 
+
+The original README is as follows:
+
 An Arduino library to facilitate simple ESP32 "**pull**"-based OTA updates
 
 ## "Pull" Design
