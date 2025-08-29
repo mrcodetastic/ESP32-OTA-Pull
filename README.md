@@ -1,5 +1,5 @@
 # ESP32-OTA-Pull
-An Arduino library to facilitate simple ESP32 "**pull**"-based OTA updates
+An Arduino library to facilitate simple ESP32 "**pull**"-based OTA updates with **HTTP and HTTPS support**
 
 ## "Pull" Design
 There are a number of good Arduino libraries out there for OTA ("Over The Air") firmware updates.  Example: [ArduinoOTA](https://github.com/jandrassy/ArduinoOTA) and [AsyncElegantOTA](https://github.com/ayushsharma82/AsyncElegantOTA).  These libraries use a "push" technology, wherein you identify a target device you'd like to update and push/upload a new firmware to it.
@@ -95,4 +95,55 @@ See the "Further-OTA-Examples" sketch for examples on how you can:
 - Specify a "Config" string to match any "Config" string in the JSON filter file. (**SetConfig()**)
 - Permit downgrades. (**AllowDowngrades()**)
 - Override the default Board or Device strings if needed.  (**OverrideBoard()** and **OverrideDevice()**)
+
+## HTTPS Support
+ESP32-OTA-Pull now supports secure HTTPS connections for downloading both JSON configuration files and firmware binaries. This provides enhanced security for OTA updates.
+
+### Basic HTTPS Usage
+```cpp
+ESP32OTAPull ota;
+// For quick testing (NOT recommended for production)
+ota.SetInsecure(true);
+int ret = ota.CheckForOTAUpdate("https://example.com/myimages/example.json", VERSION);
+```
+
+### Secure HTTPS with Root CA Certificate
+For production use, provide a root CA certificate to verify the server's identity:
+
+```cpp
+// Your server's root CA certificate (PEM format)
+const char* root_ca = 
+"-----BEGIN CERTIFICATE-----\n"
+"MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw\n"
+// ... rest of certificate ...
+"-----END CERTIFICATE-----\n";
+
+ESP32OTAPull ota;
+ota.SetRootCA(root_ca);
+int ret = ota.CheckForOTAUpdate("https://example.com/myimages/example.json", VERSION);
+```
+
+### Client Certificate Authentication
+For environments requiring mutual TLS authentication:
+
+```cpp
+const char* client_cert = "-----BEGIN CERTIFICATE-----\n...";
+const char* client_key = "-----BEGIN PRIVATE KEY-----\n...";
+
+ESP32OTAPull ota;
+ota.SetRootCA(root_ca)
+   .SetClientCertificate(client_cert, client_key);
+int ret = ota.CheckForOTAUpdate("https://example.com/myimages/example.json", VERSION);
+```
+
+### HTTPS Configuration Methods
+- **SetRootCA(const char* rootCA)** - Set the root CA certificate for server verification
+- **SetClientCertificate(const char* clientCert, const char* clientKey)** - Set client certificate and private key for mutual TLS
+- **SetInsecure(bool insecure = true)** - Enable insecure connections (skip certificate verification) - NOT recommended for production
+
+### Security Notes
+- Always use proper root CA certificates in production environments
+- The `SetInsecure()` method is provided for testing purposes only
+- Client certificates are optional and only needed for mutual TLS authentication
+- Both HTTP and HTTPS URLs are automatically detected and handled appropriately
 

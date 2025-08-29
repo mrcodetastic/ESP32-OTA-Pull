@@ -30,6 +30,7 @@ SOFTWARE.
 #include <ArduinoJson.h>
 #include <Update.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 
 class ESP32OTAPull
 {
@@ -48,12 +49,68 @@ private:
     String CVersion   = "";
     bool DowngradesAllowed = false;
     bool SerialDebug = false;
+    
+    // HTTPS/SSL configuration
+    const char* RootCA = NULL;
+    const char* ClientCert = NULL;
+    const char* ClientKey = NULL;
+    bool InsecureConnection = false;
+    bool UseHTTPS = false;
+
+    void ConfigureHTTPClient(HTTPClient& http, const char* url)
+    {
+        UseHTTPS = strncmp(url, "https://", 8) == 0;
+        
+        if (UseHTTPS)
+        {
+            WiFiClientSecure* secureClient = new WiFiClientSecure();
+            
+            if (InsecureConnection)
+            {
+                secureClient->setInsecure();
+                if (SerialDebug)
+                    Serial.println("HTTPS: Using insecure connection (no certificate verification)");
+            }
+            else if (RootCA != NULL)
+            {
+                secureClient->setCACert(RootCA);
+                if (SerialDebug)
+                    Serial.println("HTTPS: Using provided root CA certificate");
+            }
+            else
+            {
+                // Use built-in root certificates if available
+                secureClient->setInsecure(); // Fallback to insecure if no CA provided
+                if (SerialDebug)
+                    Serial.println("HTTPS: No root CA provided, falling back to insecure connection");
+            }
+            
+            // Set client certificate if provided
+            if (ClientCert != NULL && ClientKey != NULL)
+            {
+                secureClient->setCertificate(ClientCert);
+                secureClient->setPrivateKey(ClientKey);
+                if (SerialDebug)
+                    Serial.println("HTTPS: Using client certificate authentication");
+            }
+            
+            http.begin(*secureClient, url);
+            
+            // Note: WiFiClientSecure object will be managed by HTTPClient
+            // and cleaned up when http.end() is called
+        }
+        else
+        {
+            http.begin(url);
+        }
+        
+        http.useHTTP10(true);
+    }
 
     int DoOTAUpdate(const char* URL, ActionType Action)
     {
         HTTPClient http;
-		http.useHTTP10(true);		
-        http.begin(URL);
+        ConfigureHTTPClient(http, URL);
 
         // Send HTTP GET request
         int httpResponseCode = http.GET();
@@ -111,6 +168,39 @@ private:
     }
 
 public:
+    /// @brief Set the root CA certificate for HTTPS connections
+    /// @param rootCA PEM-formatted root CA certificate string
+    /// @return The current ESP32OTAPull object for chaining
+    ESP32OTAPull &SetRootCA(const char *rootCA)
+    {
+        RootCA = rootCA;
+        InsecureConnection = false;
+        return *this;
+    }
+
+    /// @brief Set client certificate and private key for mutual TLS authentication
+    /// @param clientCert PEM-formatted client certificate string
+    /// @param clientKey PEM-formatted private key string
+    /// @return The current ESP32OTAPull object for chaining
+    ESP32OTAPull &SetClientCertificate(const char *clientCert, const char *clientKey)
+    {
+        ClientCert = clientCert;
+        ClientKey = clientKey;
+        return *this;
+    }
+
+    /// @brief Enable insecure HTTPS connections (skip certificate verification)
+    /// @param insecure true to skip certificate verification (NOT RECOMMENDED for production)
+    /// @return The current ESP32OTAPull object for chaining
+    ESP32OTAPull &SetInsecure(bool insecure = true)
+    {
+        InsecureConnection = insecure;
+        if (insecure) {
+            RootCA = NULL; // Clear root CA when using insecure mode
+        }
+        return *this;
+    }
+
     /// @brief Return the version string of the binary, as reported by the JSON
     /// @return The firmware version
     String GetVersion()
@@ -179,10 +269,7 @@ public:
         CurrentVersion = CurrentVersion == NULL ? "" : CurrentVersion;
 
 		HTTPClient http;
-		http.useHTTP10(true); // Avoid issues with HTTP Chunked Responses
-		
-		// Send request
-		http.begin(JSON_URL);
+		ConfigureHTTPClient(http, JSON_URL);
 		
         // Send HTTP GET request
         int httpResponseCode = http.GET();
