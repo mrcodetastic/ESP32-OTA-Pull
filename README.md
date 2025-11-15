@@ -11,6 +11,10 @@ With ESP32-OTA-Pull, whenever you're ready to publish a new firmware for your de
 - The new version of your compiled binary program (typically a .bin "image")
 - A small, human-readable **JSON** file that describes the image.  This is what the library consults to determine whether to download and install the new firmware.
 
+## Dependancies
+This library requires the following to compile:
+- ArduinoJson by Benoit
+- StreamUtilis by Benoit 
 
 ## Building the JSON "filter" file
 A minimal JSON file simply tells the library where the new firmware can be found and what its version is.
