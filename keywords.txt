@@ -13,12 +13,16 @@ ActionType KEYWORD1
 #######################################
 
 GetVersion  KEYWORD2
-CheckForUpdate	KEYWORD2
+CheckForOTAUpdate	KEYWORD2
 OverrideDevice	KEYWORD2
 OverrideBoard	KEYWORD2
 SetConfig	KEYWORD2
 AllowDowngrades	KEYWORD2
 SetCallback	KEYWORD2
+SetRootCA	KEYWORD2
+SetClientCertificate	KEYWORD2
+SetInsecure	KEYWORD2
+EnableSerialDebug	KEYWORD2
 
 #######################################
 # Constants (LITERAL1)

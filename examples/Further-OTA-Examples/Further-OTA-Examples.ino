@@ -21,14 +21,16 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <Arduino.h>
 #include "ESP32OTAPull.h"
 
-// First, edit these values appropriately
-#if __has_include("settings.h") // optionally override with values in settings.h
+// Edit these defaults, or opt in to a local settings.h by defining
+// FURTHER_OTA_EXAMPLE_USE_SETTINGS below. The header must define all four names.
+// #define FURTHER_OTA_EXAMPLE_USE_SETTINGS
+#if defined(FURTHER_OTA_EXAMPLE_USE_SETTINGS)
 #include "settings.h"
 #else
-static const char *JSON_URL = "https://example.com/myimages/Further-OTA-Examples.json"; // this is where you'll post your JSON filter file
-static const char *SSID 	  = "<my WiFi SSID>";
-static const char *PASS     = "<my WiFi Password>";
-static const char *VERSION  = "1.0.0"; // The current version of this program
+static const char JSON_URL[] = "https://example.com/myimages/Further-OTA-Examples.json"; // URL of the JSON filter file
+static const char SSID[] = "<my WiFi SSID>";
+static const char PASS[] = "<my WiFi Password>";
+static const char VERSION[] = "1.0.0"; // Current firmware version
 #endif
 
 void callback_dots(int offset, int totallength);

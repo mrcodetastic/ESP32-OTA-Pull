@@ -21,14 +21,16 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <Arduino.h>
 #include "ESP32OTAPull.h"
 
-// First, edit these values appropriately
-#if __has_include("settings.h") // optionally override with values in settings.h
+// Edit these defaults, or opt in to a local settings.h by defining
+// BASIC_OTA_EXAMPLE_USE_SETTINGS below. The header must define all four names.
+// #define BASIC_OTA_EXAMPLE_USE_SETTINGS
+#if defined(BASIC_OTA_EXAMPLE_USE_SETTINGS)
 #include "settings.h"
 #else
-static const char *JSON_URL = "https://example.com/myimages/Basic-OTA-Example.json"; // this is where you'll post your JSON filter file
-static const char *SSID 	= "<WiFi SSID>";
-static const char *PASS     = "<WiFi Password>";
-static const char *VERSION  = "1.0.0"; // The current version of this program
+static const char JSON_URL[] = "https://example.com/myimages/Basic-OTA-Example.json"; // URL of the JSON filter file
+static const char SSID[] = "<WiFi SSID>";
+static const char PASS[] = "<WiFi Password>";
+static const char VERSION[] = "1.0.0"; // Current firmware version
 #endif
 
 // Now create a text file called "Basic-OTA-Example.json" that describes the image you are going to post.  Example below.
@@ -107,7 +109,7 @@ void DisplayInfo()
 	Serial.printf("  ]\n");
 	Serial.printf("}\n");
 	Serial.printf("\n");
-	Serial.printf("(Board, Device, Config, and Version are all *optional*.)\n");
+	Serial.printf("(Board, Device, and Config are optional; Version and URL are required.)\n");
 	Serial.printf("\n");
 	Serial.printf("Post the JSON at, e.g., %s\n", JSON_URL);
 	Serial.printf("Post the compiled bin at, e.g., %s\n\n", exampleImageURL);

@@ -11,10 +11,9 @@ With ESP32-OTA-Pull, whenever you're ready to publish a new firmware for your de
 - The new version of your compiled binary program (typically a .bin "image")
 - A small, human-readable **JSON** file that describes the image.  This is what the library consults to determine whether to download and install the new firmware.
 
-## Dependancies
+## Dependencies
 This library requires the following to compile:
-- ArduinoJson by Benoit
-- StreamUtilis by Benoit 
+- ArduinoJson 7 or newer
 
 ## Building the JSON "filter" file
 A minimal JSON file simply tells the library where the new firmware can be found and what its version is.
@@ -86,10 +85,13 @@ A device with Config "16MB" will match the first block and install the 16MB bina
        int ret = ota.CheckForOTAUpdate("http://example.com/myimages/example.json", VERSION);
 ```
 
-If the JSON file says that the "Version" number of the posted image is greater than the current VERSION supplied in the call to CheckForOTAUpdate, then it will download and install it!
+If the JSON file says that the posted `Version` is greater than the current `VERSION` supplied in the call to `CheckForOTAUpdate`, then it will download and install it. Versions must be dot-separated numeric components (for example `1.10.0`); components are compared numerically, and missing trailing components count as zero (`1.2` equals `1.2.0`).
+
+### Configuring the example sketches
+Each example defines its JSON URL, Wi-Fi SSID/password, and current firmware version near the top of its `.ino` file. Edit those constants before uploading. To keep local values in a separate `settings.h`, uncomment that example's `*_USE_SETTINGS` define; the header must declare `JSON_URL`, `SSID`, `PASS`, and `VERSION`. The header is opt-in so an unrelated `settings.h` elsewhere in an Arduino include path cannot accidentally suppress the defaults and cause undefined-name errors.
 
 ## How it works
-The **CheckForOTAUpdate** method downloads the specified JSON file and begins iterating through all the "Configurations" provided.  When it finds one that matches the currently running sketch, it compares the "Version" string with the value passed into the method.  If the posted Version is greater than the local one, an update is done, subject to the constraints of the "Action" parameter.  If the posted Version is less, then the update is only done if AllowDowngrades has been set.
+The **CheckForOTAUpdate** method downloads the specified JSON file and begins iterating through all the "Configurations" provided. When it finds one that matches the currently running sketch, it compares the numeric version components with the value passed into the method. If the posted version is greater than the local one, an update is done, subject to the constraints of the "Action" parameter. If the posted version is less, then the update is only done if AllowDowngrades has been set. The JSON manifest must include a valid `Content-Length` and be no larger than 16 KiB. Firmware responses must also include a valid `Content-Length`; unknown-length/chunked responses are rejected, and stalled firmware downloads time out. Non-200 HTTP status codes are returned as their positive status values; connection, URL, or TLS-configuration failures return `HTTP_FAILED`.
 
 ## Extended techniques
 See the "Further-OTA-Examples" sketch for examples on how you can:
@@ -113,6 +115,8 @@ int ret = ota.CheckForOTAUpdate("https://example.com/myimages/example.json", VER
 
 ### Secure HTTPS with Root CA Certificate
 For production use, provide a root CA certificate to verify the server's identity:
+
+Certificate validity checks use the ESP32 system clock. Synchronize time (for example with SNTP via `configTime()`) before making a CA-verified request.
 
 ```cpp
 // Your server's root CA certificate (PEM format)
@@ -147,7 +151,8 @@ int ret = ota.CheckForOTAUpdate("https://example.com/myimages/example.json", VER
 
 ### Security Notes
 - Always use proper root CA certificates in production environments
-- The `SetInsecure()` method is provided for testing purposes only
+- HTTPS requests fail closed unless a root CA is configured or `SetInsecure()` is explicitly enabled. The latter is provided for testing only and disables server identity verification.
 - Client certificates are optional and only needed for mutual TLS authentication
 - Both HTTP and HTTPS URLs are automatically detected and handled appropriately
+- HTTPS certificate validation requires a correct system clock; synchronize it before making secure requests.
 

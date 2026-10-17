@@ -21,14 +21,16 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <Arduino.h>
 #include "ESP32OTAPull.h"
 
-// First, edit these values appropriately
-#if __has_include("settings.h") // optionally override with values in settings.h
+// Edit these defaults, or opt in to a local settings.h by defining
+// HTTPS_OTA_EXAMPLE_USE_SETTINGS below. The header must define all four names.
+// #define HTTPS_OTA_EXAMPLE_USE_SETTINGS
+#if defined(HTTPS_OTA_EXAMPLE_USE_SETTINGS)
 #include "settings.h"
 #else
-static const char *JSON_URL = "https://example.com/myimages/HTTPS-OTA-Example.json"; // this is where you'll post your JSON filter file
-static const char *SSID 	= "<WiFi SSID>";
-static const char *PASS     = "<WiFi Password>";
-static const char *VERSION  = "1.0.0"; // The current version of this program
+static const char JSON_URL[] = "https://example.com/myimages/HTTPS-OTA-Example.json"; // URL of the JSON filter file
+static const char SSID[] = "<WiFi SSID>";
+static const char PASS[] = "<WiFi Password>";
+static const char VERSION[] = "1.0.0"; // Current firmware version
 #endif
 
 // Root CA certificate for your HTTPS server (example for Let's Encrypt)
@@ -115,7 +117,7 @@ void DisplayInfo()
 	Serial.printf("  ]\n");
 	Serial.printf("}\n");
 	Serial.printf("\n");
-	Serial.printf("(Board, Device, Config, and Version are all *optional*.)\n");
+	Serial.printf("(Board, Device, and Config are optional; Version and URL are required.)\n");
 	Serial.printf("\n");
 	Serial.printf("Post the JSON at, e.g., %s\n", JSON_URL);
 	Serial.printf("Post the compiled bin at, e.g., %s\n\n", exampleImageURL);
@@ -152,9 +154,11 @@ void setup()
   }
 
   Serial.println("\nConnected to WiFi");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
+	Serial.println("IP address: ");
+	Serial.println(WiFi.localIP());
 
+	// For CA-verified HTTPS, synchronize the ESP32 clock (for example, with configTime/SNTP)
+	// before the OTA request so certificate validity dates can be checked correctly.
 	delay(2000); // Give some time to obtain IP_ADDR 'STA_GOT_IP'. Or risk HTTP_ERROR prematurely.
 
 	// HTTPS Example 1: Using a root CA certificate for secure connection

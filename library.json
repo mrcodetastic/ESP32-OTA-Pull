@@ -1,6 +1,6 @@
 {
   "name": "ESP32-OTA-Pull",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "keywords": "ESP32,OTA,WiFi,HTTP",
   "description": "A library for simple 'pull-based' ESP32 OTA updates",
   "repository":
@@ -17,5 +17,8 @@
     }
   ],
   "frameworks": "arduino",
-  "platforms": "Espressif 32"
+  "platforms": "Espressif 32",
+  "dependencies": {
+    "bblanchon/ArduinoJson": "^7.0.0"
+  }
 }

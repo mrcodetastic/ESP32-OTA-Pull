@@ -31,6 +31,8 @@ SOFTWARE.
 #include <Update.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
+#include <ctype.h>
+#include <string.h>
 
 class ESP32OTAPull
 {
@@ -42,7 +44,6 @@ public:
 
 private:
     void (*Callback)(int offset, int totallength) = NULL;
-    ActionType Action = UPDATE_AND_BOOT;
     String Board      = ARDUINO_BOARD;
     String Device     = "";
     String Config     = "";
@@ -55,116 +56,195 @@ private:
     const char* ClientCert = NULL;
     const char* ClientKey = NULL;
     bool InsecureConnection = false;
-    bool UseHTTPS = false;
 
-    void ConfigureHTTPClient(HTTPClient& http, const char* url)
+    static bool IsNumericVersion(const char* version)
     {
-        UseHTTPS = strncmp(url, "https://", 8) == 0;
-        
-        if (UseHTTPS)
+        if (version == NULL || *version == '\0')
+            return false;
+        bool expectingDigit = true;
+        for (const char* p = version; *p != '\0'; ++p)
         {
-            WiFiClientSecure* secureClient = new WiFiClientSecure();
-            
+            if (*p == '.')
+            {
+                if (expectingDigit)
+                    return false;
+                expectingDigit = true;
+            }
+            else if (isdigit(static_cast<unsigned char>(*p)))
+                expectingDigit = false;
+            else
+                return false;
+        }
+        return !expectingDigit;
+    }
+
+    // Compare dot-separated numeric versions (for example, 1.10.0 > 1.9.0).
+    static bool CompareVersions(const char* left, const char* right, int& result)
+    {
+        if (!IsNumericVersion(left) || !IsNumericVersion(right))
+            return false;
+
+        const char* a = left;
+        const char* b = right;
+        while (*a != '\0' || *b != '\0')
+        {
+            const char* aEnd = a;
+            const char* bEnd = b;
+            while (*aEnd != '\0' && *aEnd != '.') ++aEnd;
+            while (*bEnd != '\0' && *bEnd != '.') ++bEnd;
+
+            const char* aSignificant = a;
+            const char* bSignificant = b;
+            while (aSignificant < aEnd && *aSignificant == '0') ++aSignificant;
+            while (bSignificant < bEnd && *bSignificant == '0') ++bSignificant;
+            const size_t aLength = static_cast<size_t>(aEnd - aSignificant);
+            const size_t bLength = static_cast<size_t>(bEnd - bSignificant);
+            if (aLength != bLength)
+            {
+                result = aLength > bLength ? 1 : -1;
+                return true;
+            }
+
+            const int segmentComparison = strncmp(aSignificant, bSignificant, aLength);
+            if (segmentComparison != 0)
+            {
+                result = segmentComparison > 0 ? 1 : -1;
+                return true;
+            }
+            a = *aEnd == '.' ? aEnd + 1 : aEnd;
+            b = *bEnd == '.' ? bEnd + 1 : bEnd;
+        }
+        result = 0;
+        return true;
+    }
+
+    bool ConfigureHTTPClient(HTTPClient& http, WiFiClientSecure& secureClient, const char* url)
+    {
+        if (url == NULL)
+            return false;
+        const bool useHTTPS = strncmp(url, "https://", 8) == 0;
+        const bool useHTTP = strncmp(url, "http://", 7) == 0;
+        if (!useHTTPS && !useHTTP)
+            return false;
+
+        http.setConnectTimeout(15000);
+        http.setTimeout(15000);
+        if (useHTTPS)
+        {
+            if ((ClientCert == NULL) != (ClientKey == NULL))
+                return false;
             if (InsecureConnection)
             {
-                secureClient->setInsecure();
+                secureClient.setInsecure();
                 if (SerialDebug)
-                    Serial.println("HTTPS: Using insecure connection (no certificate verification)");
+                    Serial.println("HTTPS: Insecure mode explicitly enabled; certificate verification is disabled");
             }
             else if (RootCA != NULL)
             {
-                secureClient->setCACert(RootCA);
+                secureClient.setCACert(RootCA);
                 if (SerialDebug)
                     Serial.println("HTTPS: Using provided root CA certificate");
             }
             else
             {
-                // Use built-in root certificates if available
-                secureClient->setInsecure(); // Fallback to insecure if no CA provided
                 if (SerialDebug)
-                    Serial.println("HTTPS: No root CA provided, falling back to insecure connection");
+                    Serial.println("HTTPS: Refusing connection because no root CA is configured");
+                return false;
             }
-            
-            // Set client certificate if provided
-            if (ClientCert != NULL && ClientKey != NULL)
+
+            if (ClientCert != NULL)
             {
-                secureClient->setCertificate(ClientCert);
-                secureClient->setPrivateKey(ClientKey);
-                if (SerialDebug)
-                    Serial.println("HTTPS: Using client certificate authentication");
+                secureClient.setCertificate(ClientCert);
+                secureClient.setPrivateKey(ClientKey);
             }
-            
-            http.begin(*secureClient, url);
-            
-            // Note: WiFiClientSecure object will be managed by HTTPClient
-            // and cleaned up when http.end() is called
+            return http.begin(secureClient, url);
         }
-        else
-        {
-            http.begin(url);
-        }
-        
-        http.useHTTP10(true);
+        return http.begin(url);
     }
 
-    int DoOTAUpdate(const char* URL, ActionType Action)
+    int DoOTAUpdate(const char* URL, ActionType action)
     {
         HTTPClient http;
-        ConfigureHTTPClient(http, URL);
+        WiFiClientSecure secureClient;
+        if (!ConfigureHTTPClient(http, secureClient, URL))
+            return HTTP_FAILED;
 
-        // Send HTTP GET request
-        int httpResponseCode = http.GET();
-
-        if (httpResponseCode == 200)
+        const int httpResponseCode = http.GET();
+        if (httpResponseCode != HTTP_CODE_OK)
         {
-            int totalLength = http.getSize();
+            http.end();
+            return httpResponseCode > 0 ? httpResponseCode : HTTP_FAILED;
+        }
 
-            // this is required to start firmware update process
-            if (!Update.begin(UPDATE_SIZE_UNKNOWN))
-                return OTA_UPDATE_FAIL;
+        const int totalLength = http.getSize();
+        if (totalLength <= 0)
+        {
+            http.end();
+            return HTTP_FAILED; // A valid Content-Length is required.
+        }
+        if (!Update.begin(static_cast<size_t>(totalLength)))
+        {
+            http.end();
+            return OTA_UPDATE_FAIL;
+        }
 
-            // create buffer for read
-            uint8_t buff[1280] = { 0 };
+        WiFiClient* stream = http.getStreamPtr();
+        if (stream == NULL)
+        {
+            Update.abort();
+            http.end();
+            return WRITE_ERROR;
+        }
 
-            // get tcp stream
-            WiFiClient* stream = http.getStreamPtr();
-
-            // read all data from server
-            int offset = 0;
-            while (http.connected() && offset < totalLength)
+        uint8_t buffer[1024];
+        int offset = 0;
+        unsigned long lastProgress = millis();
+        const unsigned long inactivityTimeoutMs = 30000;
+        while (offset < totalLength)
+        {
+            if (!http.connected() && stream->available() == 0)
+                break;
+            const size_t available = stream->available();
+            if (available == 0)
             {
-                size_t sizeAvail = stream->available();
-                if (sizeAvail > 0)
-                {
-                    size_t bytes_to_read = min(sizeAvail, sizeof(buff));
-                    size_t bytes_read = stream->readBytes(buff, bytes_to_read);
-                    size_t bytes_written = Update.write(buff, bytes_read);
-                    if (bytes_read != bytes_written)
-                    {
-                        // Serial.printf("Unexpected error in OTA: %d %d %d\n", bytes_to_read, bytes_read, bytes_written);
-                        break;
-                    }
-                    offset += bytes_written;
-                    if (Callback != NULL)
-                        Callback(offset, totalLength);
-                }
+                if (millis() - lastProgress >= inactivityTimeoutMs)
+                    break;
+                delay(1);
+                continue;
             }
 
-            if (offset == totalLength)
-            {
-                Update.end(true);
-                delay(1000);
+            const size_t remaining = static_cast<size_t>(totalLength - offset);
+            size_t bytesToRead = available < sizeof(buffer) ? available : sizeof(buffer);
+            if (bytesToRead > remaining)
+                bytesToRead = remaining;
+            const size_t bytesRead = stream->readBytes(buffer, bytesToRead);
+            if (bytesRead == 0 || Update.write(buffer, bytesRead) != bytesRead)
+                break;
 
-                // Restart ESP32 to see changes
-                if (Action == UPDATE_BUT_NO_BOOT)
-                    return UPDATE_OK;
-                ESP.restart();
-            }
+            offset += static_cast<int>(bytesRead);
+            lastProgress = millis();
+            if (Callback != NULL)
+                Callback(offset, totalLength);
+        }
+
+        if (offset != totalLength)
+        {
+            Update.abort();
+            http.end();
             return WRITE_ERROR;
         }
 
         http.end();
-        return httpResponseCode;
+        if (!Update.end())
+        {
+            Update.abort();
+            return OTA_UPDATE_FAIL;
+        }
+        if (action == UPDATE_BUT_NO_BOOT)
+            return UPDATE_OK;
+        delay(1000);
+        ESP.restart();
+        return UPDATE_OK;
     }
 
 public:
@@ -195,9 +275,8 @@ public:
     ESP32OTAPull &SetInsecure(bool insecure = true)
     {
         InsecureConnection = insecure;
-        if (insecure) {
-            RootCA = NULL; // Clear root CA when using insecure mode
-        }
+        if (insecure)
+            RootCA = NULL;
         return *this;
     }
 
@@ -254,9 +333,10 @@ public:
     }
 
     /// @brief Enable extra debugging output on Serial if required.
-    void EnableSerialDebug()
+    ESP32OTAPull &EnableSerialDebug()
     {
         SerialDebug = true;
+        return *this;
     }
 
     /// @brief The main entry point for OTA Update
@@ -267,10 +347,14 @@ public:
     int CheckForOTAUpdate(const char* JSON_URL, const char *CurrentVersion, ActionType Action = UPDATE_AND_BOOT)
     {
         CurrentVersion = CurrentVersion == NULL ? "" : CurrentVersion;
+        if (!IsNumericVersion(CurrentVersion))
+            return JSON_PROBLEM;
 
-		HTTPClient http;
-		ConfigureHTTPClient(http, JSON_URL);
-		
+        HTTPClient http;
+        WiFiClientSecure secureClient;
+        if (!ConfigureHTTPClient(http, secureClient, JSON_URL))
+            return HTTP_FAILED;
+
         // Send HTTP GET request
         int httpResponseCode = http.GET();
 		
@@ -279,36 +363,58 @@ public:
             Serial.println(httpResponseCode, DEC);
         }
 
-        if (httpResponseCode != 200) {
-		   return httpResponseCode > 0 ? httpResponseCode : HTTP_FAILED;
-		}
+        if (httpResponseCode != HTTP_CODE_OK) {
+            http.end();
+            return httpResponseCode > 0 ? httpResponseCode : HTTP_FAILED;
+        }
 
-		// Get the raw and the decoded stream
-		Stream& rawStream = http.getStream();
-		
-		// Parse response
-		JsonDocument doc;
-		
-		// Parse JSON object (and intercept)
-		//ReadLoggingStream loggingStream(rawStream, Serial);
-		//DeserializationError error = deserializeJson(doc, loggingStream);
-		
-		// Parse JSON object
-		DeserializationError error = deserializeJson(doc, rawStream);
+        // Bound manifest parsing and reject unknown-length bodies (including chunked bodies).
+        const int jsonLength = http.getSize();
+        const int maxJsonLength = 16 * 1024;
+        if (jsonLength <= 0 || jsonLength > maxJsonLength) {
+            http.end();
+            return JSON_PROBLEM;
+        }
 
-		// Disconnect
-		http.end();		
+        Stream& rawStream = http.getStream();
+        JsonDocument doc;
+        DeserializationError error = deserializeJson(doc, rawStream);
+        http.end();
 
-		if (error) {
+        if (error) {
             if (SerialDebug)  {
                 Serial.print(F("deserializeJson() failed: "));
                 Serial.println(error.f_str());
             }
-			return JSON_PROBLEM;
-		}
+            return JSON_PROBLEM;
+        }
+
+        if (!doc.is<JsonObject>() || !doc["Configurations"].is<JsonArray>())
+            return JSON_PROBLEM;
+
+        JsonArray configurations = doc["Configurations"].as<JsonArray>();
+        if (configurations.size() == 0)
+            return NO_UPDATE_PROFILE_FOUND;
+
+        // Validate every profile before matching or using any URL.
+        for (JsonObject config : configurations)
+        {
+            if (config.isNull() || !config["URL"].is<const char*>() ||
+                !config["Version"].is<const char*>() ||
+                (!config["Board"].isNull() && !config["Board"].is<const char*>()) ||
+                (!config["Device"].isNull() && !config["Device"].is<const char*>()) ||
+                (!config["Config"].isNull() && !config["Config"].is<const char*>()))
+                return JSON_PROBLEM;
+
+            const char* url = config["URL"].as<const char*>();
+            if (url[0] == '\0' ||
+                !IsNumericVersion(config["Version"].as<const char*>()) ||
+                (strncmp(url, "http://", 7) != 0 && strncmp(url, "https://", 8) != 0))
+                return JSON_PROBLEM;
+        }
 
         String _Board    = Board.isEmpty() ? ARDUINO_BOARD : Board;
-		String _Device   = Device.isEmpty() ? WiFi.macAddress() : Device;
+        String _Device   = Device.isEmpty() ? WiFi.macAddress() : Device;
         String _Config   = Config.isEmpty() ? "" : Config;
         bool foundProfile = false;
 
@@ -321,20 +427,24 @@ public:
         }
 
         // Step through the configurations looking for a match
-        for (auto config : doc["Configurations"].as<JsonArray>())
+        for (JsonObject config : configurations)
         {
-            String CBoard   = config["Board"].isNull() ? "" : (const char *)config["Board"];
-            String CDevice  = config["Device"].isNull() ? "" : (const char *)config["Device"];
-            CVersion        = config["Version"].isNull() ? "" : (const char *)config["Version"];
-            String CConfig  = config["Config"].isNull() ? "" : (const char *)config["Config"];
+            String CBoard   = config["Board"].isNull() ? "" : config["Board"].as<const char*>();
+            String CDevice  = config["Device"].isNull() ? "" : config["Device"].as<const char*>();
+            CVersion        = config["Version"].as<const char*>();
+            String CConfig  = config["Config"].isNull() ? "" : config["Config"].as<const char*>();
 
             if ((CBoard.isEmpty() || CBoard == _Board) &&
                 (CDevice.isEmpty() || CDevice == _Device) &&
                 (CConfig.isEmpty() || CConfig == _Config))
             {
-                if (CVersion.isEmpty() || CVersion > String(CurrentVersion) ||
-                    (DowngradesAllowed && CVersion != String(CurrentVersion))) {
-                    return Action == DONT_DO_UPDATE ? UPDATE_AVAILABLE : DoOTAUpdate(config["URL"], Action);
+                int versionComparison = 0;
+                if (!CompareVersions(CVersion.c_str(), CurrentVersion, versionComparison))
+                    return JSON_PROBLEM;
+
+                if (versionComparison > 0 || (DowngradesAllowed && versionComparison != 0)) {
+                    CVersion = config["Version"].as<const char*>();
+                    return Action == DONT_DO_UPDATE ? UPDATE_AVAILABLE : DoOTAUpdate(config["URL"].as<const char*>(), Action);
                 }
                 foundProfile = true;
             }
